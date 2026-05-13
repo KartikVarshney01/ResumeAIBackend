@@ -38,3 +38,5 @@ logs/
 ## Cloudflare Tunnels
 .cloudflared/
 cloudflared.exe
+
+*.pdf
