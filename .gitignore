@@ -40,3 +40,5 @@ logs/
 cloudflared.exe
 
 *.pdf
+"appsettings.json" 
+"appsettings.Development.json" 
