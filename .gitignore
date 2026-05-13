@@ -1,0 +1,40 @@
+## .NET Core / Visual Studio
+bin/
+obj/
+out/
+.vs/
+.vscode/
+*.user
+*.userosscache
+*.sln.docstates
+*.suo
+
+## Build/Publish
+publish/
+[Pp]ublish/
+
+## Docker
+.dockerignore
+
+## User secrets & Sensitive info
+appsettings.Development.json
+*.pfx
+*.certificate
+
+## Databases
+*.mdf
+*.ldf
+*.sdf
+
+## Infrastructure Tools
+.sonarqube/
+.sonar/
+
+## Logs
+*.log
+logs/
+[Ll]ogs/
+
+## Cloudflare Tunnels
+.cloudflared/
+cloudflared.exe

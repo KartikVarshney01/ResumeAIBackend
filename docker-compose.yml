@@ -1,0 +1,203 @@
+services:
+  # Infrastructure
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    environment:
+      - ACCEPT_EULA=Y
+      - MSSQL_SA_PASSWORD=YourStrong@Passw0rd
+    ports:
+      - "1433:1433"
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'YourStrong@Passw0rd' -Q 'SELECT 1' -b -C"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - resumeai-network
+
+  redis:
+    image: redis:alpine
+    ports:
+      - "6379:6379"
+    networks:
+      - resumeai-network
+
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_running"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - resumeai-network
+
+  # Microservices
+  auth-api:
+    build:
+      context: .
+      dockerfile: Auth_Api/ResumeAI.Auth.API/Dockerfile
+    environment:
+      - ConnectionStrings__AuthDb=Server=sqlserver;Database=AuthDb;User Id=sa;Password=YourStrong@Passw0rd;TrustServerCertificate=True;Encrypt=False
+      - Redis__ConnectionString=redis:6379
+      - RabbitMQ__Host=rabbitmq
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    networks:
+      - resumeai-network
+
+  payment-api:
+    build:
+      context: .
+      dockerfile: PaymentService/ResumeAI.Payment.API/Dockerfile
+    environment:
+      - ConnectionStrings__PaymentDb=Server=sqlserver;Database=PaymentDb;User Id=sa;Password=YourStrong@Passw0rd;TrustServerCertificate=True;Encrypt=False
+      - RabbitMQ__Host=rabbitmq
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - resumeai-network
+
+  resume-api:
+    build:
+      context: .
+      dockerfile: ResumeAI/ResumeAI.Resume.API/Dockerfile
+    environment:
+      - ConnectionStrings__ResumeDb=Server=sqlserver;Database=ResumeDb;User Id=sa;Password=YourStrong@Passw0rd;TrustServerCertificate=True;Encrypt=False
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+    networks:
+      - resumeai-network
+
+  ai-api:
+    build:
+      context: .
+      dockerfile: AISection/ResumeAI.AI.API/Dockerfile
+    environment:
+      - ConnectionStrings__AiDb=Server=sqlserver;Database=AiDb;User Id=sa;Password=YourStrong@Passw0rd;TrustServerCertificate=True;Encrypt=False
+      - Redis__ConnectionString=redis:6379
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    networks:
+      - resumeai-network
+
+  export-api:
+    build:
+      context: .
+      dockerfile: ExportService/ResumeAI.Export.API/Dockerfile
+    environment:
+      - ConnectionStrings__ExportDb=Server=sqlserver;Database=ExportDb;User Id=sa;Password=YourStrong@Passw0rd;TrustServerCertificate=True;Encrypt=False
+      - RabbitMQ__Host=rabbitmq
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - resumeai-network
+
+  notification-api:
+    build:
+      context: .
+      dockerfile: NotificationService/ResumeAI.Notification.API/Dockerfile
+    environment:
+      - ConnectionStrings__NotificationDb=Server=sqlserver;Database=NotificationDb;User Id=sa;Password=YourStrong@Passw0rd;TrustServerCertificate=True;Encrypt=False
+      - RabbitMQ__Host=rabbitmq
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - resumeai-network
+
+  template-api:
+    build:
+      context: .
+      dockerfile: TemplateService/ResumeAI.Template.API/Dockerfile
+    environment:
+      - ConnectionStrings__TemplateDb=Server=sqlserver;Database=TemplateDb;User Id=sa;Password=YourStrong@Passw0rd;TrustServerCertificate=True;Encrypt=False
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+    networks:
+      - resumeai-network
+
+  jobmatch-api:
+    build:
+      context: .
+      dockerfile: JobMatchService/ResumeAI.JobMatch.API/Dockerfile
+    environment:
+      - ConnectionStrings__JobMatchDb=Server=sqlserver;Database=JobMatchDb;User Id=sa;Password=YourStrong@Passw0rd;TrustServerCertificate=True;Encrypt=False
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+    networks:
+      - resumeai-network
+
+  # Gateway
+  gateway:
+    build:
+      context: .
+      dockerfile: ApiGatewayService/ResumeAI.Gateway/Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      - ASPNETCORE_HTTP_PORTS=8080
+      - ASPNETCORE_URLS=http://0.0.0.0:8080
+      - ReverseProxy__Clusters__auth-cluster__Destinations__auth__Address=http://auth-api:8080
+      - ReverseProxy__Clusters__resume-cluster__Destinations__resume__Address=http://resume-api:8080
+      - ReverseProxy__Clusters__ai-cluster__Destinations__ai__Address=http://ai-api:8080
+      - ReverseProxy__Clusters__payment-cluster__Destinations__payment__Address=http://payment-api:8080
+      - ReverseProxy__Clusters__template-cluster__Destinations__template__Address=http://template-api:8080
+      - ReverseProxy__Clusters__export-cluster__Destinations__export__Address=http://export-api:8080
+      - ReverseProxy__Clusters__jobmatch-cluster__Destinations__jobmatch__Address=http://jobmatch-api:8080
+      - ReverseProxy__Clusters__notification-cluster__Destinations__notification__Address=http://notification-api:8080
+    depends_on:
+      auth-api:
+        condition: service_started
+      resume-api:
+        condition: service_started
+      ai-api:
+        condition: service_started
+      template-api:
+        condition: service_started
+      export-api:
+        condition: service_started
+      payment-api:
+        condition: service_started
+      jobmatch-api:
+        condition: service_started
+      notification-api:
+        condition: service_started
+    networks:
+      - resumeai-network
+
+  # Frontend
+  frontend:
+    build:
+      context: .
+      dockerfile: FrontEnd/resumeai-frontend/Dockerfile
+    ports:
+      - "4200:80"
+    depends_on:
+      - gateway
+    networks:
+      - resumeai-network
+
+networks:
+  resumeai-network:
+    driver: bridge
